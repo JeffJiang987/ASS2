@@ -26,29 +26,14 @@
    option that applies best in your case and delete the other three
    choices):
 
-   -- I prompted an AI system with the full assignment specification
-   and example input/output files, and requested a complete solution.
-   I then reviewed what I was provided with, made further alterations
-   to make sure it addressed the specification, including adding
-   suitable comments and this Authorship Declaration.
-
-   -- I developed the program structure for myself, and then used
-   a sequence of prompts to an AI system to write parts of my design
-   as individual functions (including, for example, via GitHub
-   copilot), but without including the assignment specification in
-   any of the prompts.
-
    -- I developed my own complete solution to the problem, and then
    used AI to help debug individual functions, find errors, and
    provide other guidance in regard to structure and so on.
 
-   -- I made zero use of AI, and the program is wholly the result
-   my own knowledge and development.
 
    (4) The AI system(s) that I used are:
 
-   [Please type a list of the AI systems that you used while doing
-   this assignment, or "None"]
+   Claude 
 
    (5) I understand that submitting for assessment work developed
    in collaboration with other people constitutes Academic Misconduct,
@@ -56,8 +41,8 @@
    determined via the University of Melbourne Academic Honesty
    Policy, as described at https://academicintegrity.unimelb.edu.au.
 
-   Signed by: [Enter your full name and student number here before submission]
-   Dated:     [Enter the date that you "signed" the declaration]
+   Signed by: [Ziqiang Jiang, 1625190]
+   Dated:     [23/05/2026]
 
 */
 
@@ -69,14 +54,38 @@
 /**********************************************************************/
 
 /* put all your constants here */
+#define MAX_CARRY 5.8
+#define WEIGHT_D_B 3.8
+#define V_HORIZONTAL 4.2
+#define BATTERY 100
+#define FMT_DB "%4.1lf"
+#define MAXPACKAGE 999
+#define FMT_INT "%2d"
+#define SWITCH_T 120
+#define OTHER_T 90
+#define BATTERY_C1 57.0
+#define BATTERY_C2 170.0
+#define FLIGHT_C1 6.7
+#define FLIGHT_C2 5.6
+
 
 /**********************************************************************/
 
 /* put all your typedefs and structs here */
+typedef struct {
+   double X;
+   double Y;
+   double W;
+} Package_t;
 
 /**********************************************************************/
 
 /* put all your function prototypes here */
+
+void stage_1(Package_t package[], int n);
+void stage_2(double X[], double Y[], int n);
+void stage_3(double X[], double Y[], int n);
+void print_stage(int x);
 
 /**********************************************************************/
 
@@ -88,6 +97,15 @@ main(int argc, char *argv[]) {
 	   functions to do the actual work
 	*/
 
+   int n=0; // n=buddy variabe to the parallel array
+
+   Package_t package [MAXPACKAGE];
+
+   while (scanf("%lf&lf&lf", &package[n].X, &package[n].Y, &package[n].W)==3){
+      n++;  // buddy variable n to keep track of how many entries 
+   }
+
+
 	/* all done, time for a nap */
 	return EXIT_SUCCESS;
 }
@@ -98,3 +116,104 @@ main(int argc, char *argv[]) {
    task
 */
 
+void print_stage(int x){
+    printf("-------\n");
+    printf("Stage %d", x);
+    printf("-------\n");
+}
+
+double distance(Package_t* package){
+    
+    double dis= sqrt(package->X*package->X+package->Y*package->Y);
+
+    return dis;
+}
+
+double battery(Package_t* package){
+
+    double battery= (BATTERY_C1+distance(package))*(WEIGHT_D_B+package->W)/BATTERY_C2;
+
+    return battery;
+
+}
+double flight(Package_t* package){
+
+    double flight=FLIGHT_C1*(WEIGHT_D_B+package->W)+distance(package)/(V_HORIZONTAL)+FLIGHT_C2;
+
+    return flight;
+}
+void stage_1(Package_t package[], int n){
+
+    print_stage(1);
+
+    printf ("num packages :" FMT_INT "", n-1);
+
+    double t_weight=0;
+
+    for (int i=0; i<n; i++){ 
+
+        t_weight=t_weight+package[i].W;
+    }
+        
+    printf ("package " FMT_INT ": x=" FMT_DB ", y=" FMT_DB ", kg=" FMT_DB " ", 1, package[0].X, package[0].Y, package[0].W);
+
+    printf ("package " FMT_INT ": x=" FMT_DB ", y=" FMT_DB ", kg=" FMT_DB " ", n-1, package[n-1].X, package[n-1].Y, package[n-1].W);
+
+    printf ("total weight :" FMT_DB "kg", t_weight);
+}
+
+void stage_2(Package_t package[], int n){
+
+
+}   
+
+void stage_3(double X[], double Y[], int n){
+
+    int num_comp[MAXCOMPONENT];
+    double new_Y[MAXCOMPONENT];
+    double total_wastage=0;
+    
+
+    for (int i=1; i<n;i++){
+        num_comp[i]=i;
+    }
+    
+    sort_array(X,num_comp,n);
+        
+    optimize_array(X,num_comp,n);
+
+    for (int i=1; i<n;i++){
+        new_Y[i]= Y[num_comp[i]];
+    }
+    
+   
+    for (int i=1; i<n; i++){  //handle "stage 1" like structure 
+
+        if (numcoil(X, i)>numcoil(X, i-1)){
+        printf ("\n");
+        }
+        printf ("component " INT_FMT ", " DIMEN_FMT " starting ", num_comp[i],X[i], new_Y[i]);
+        printf ("" DIMEN_FMT " on coil " INT_FMT "\n", start_x(X,i), START_Y, numcoil(X,i));
+    }
+
+    printf("\n");
+
+
+    for (int j=1; j<=numcoil(X,n-1); j++){ //handle "stage 2" like structure 
+        printf("coil " INT_FMT ", internal wastage  %4.1f m^2", j, internal_waste(X,new_Y,j,n));
+        total_wastage += internal_waste(X,new_Y,j,n);
+        if (j != numcoil(X,n-1)){
+            printf(", end wastage  %4.1f m^2\n", end_wastage(X,j,n));
+            total_wastage += end_wastage(X,j,n);
+        } else {
+            break;
+        }
+    }      
+    
+    printf ("\noverall,     total wastage  %4.1f m^2\n", total_wastage);
+
+    printf("\n");
+
+    printf("tadaa!");
+    
+}
