@@ -57,7 +57,7 @@
 #define MAX_CARRY 5.8
 #define WEIGHT_D_B 3.8
 #define V_HORIZONTAL 4.2
-#define BATTERY 100
+#define MAX_BATTERY 100
 #define FMT_DB "%4.1lf"
 #define MAXPACKAGE 999
 #define FMT_INT "%2d"
@@ -69,6 +69,7 @@
 #define FLIGHT_C2 5.6
 
 
+
 /**********************************************************************/
 
 /* put all your typedefs and structs here */
@@ -76,35 +77,56 @@ typedef struct {
    double X;
    double Y;
    double W;
+   double distance;
+   double battery_out;
+   double battery_in;
+   double flight_out;
+   double flight_in;
+   int delivered;
 } Package_t;
 
 /**********************************************************************/
 
 /* put all your function prototypes here */
 
+double distance(Package_t* package);
+double battery_out(Package_t* package);
+double battery_in(Package_t* package);
+double flight_out(Package_t* package);
+double flight_in(Package_t* package);
+double battery_cost(Package_t* package);
 void stage_1(Package_t package[], int n);
-void stage_2(double X[], double Y[], int n);
-void stage_3(double X[], double Y[], int n);
+void stage_2(Package_t package[], int n);
+void stage_3(Package_t package[], int n);
 void print_stage(int x);
 
 /**********************************************************************/
 
 int
 main(int argc, char *argv[]) {
-	
+
 	/* you have to write the body of the main function, but don't
 	   make it too long, it should control the traffic flow and use
 	   functions to do the actual work
-	*/
+	*/ 
+    int n=0;
 
-   int n=0; // n=buddy variabe to the parallel array
+    Package_t package [MAXPACKAGE];
 
-   Package_t package [MAXPACKAGE];
-
-   while (scanf("%lf&lf&lf", &package[n].X, &package[n].Y, &package[n].W)==3){
+    while (scanf("%lf%lf%lf", &package[n].X, &package[n].Y, &package[n].W)==3){
       n++;  // buddy variable n to keep track of how many entries 
-   }
+    }
 
+    for (int i=0; i<n;i++){ // populate the struct 
+        package[i].distance = distance(&package[i]);
+        package[i].battery_out= battery_out(&package[i]);
+        package[i].battery_in= battery_in(&package[i]);
+        package[i].flight_out= flight_out(&package[i]);
+        package[i].flight_in=flight_in(&package[i]);
+        package[i].delivered=0; //initialize the tracking of whether package being delivered
+    }
+
+    stage_1(package,n);
 
 	/* all done, time for a nap */
 	return EXIT_SUCCESS;
@@ -123,25 +145,67 @@ void print_stage(int x){
 }
 
 double distance(Package_t* package){
-    
+
     double dis= sqrt(package->X*package->X+package->Y*package->Y);
 
     return dis;
 }
 
-double battery(Package_t* package){
+double battery_out(Package_t* package){
 
-    double battery= (BATTERY_C1+distance(package))*(WEIGHT_D_B+package->W)/BATTERY_C2;
+    double battery= (BATTERY_C1+package->distance)*(WEIGHT_D_B+package->W)/BATTERY_C2;
 
     return battery;
 
 }
-double flight(Package_t* package){
 
-    double flight=FLIGHT_C1*(WEIGHT_D_B+package->W)+distance(package)/(V_HORIZONTAL)+FLIGHT_C2;
+double battery_in(Package_t* package){
+
+    double battery= (BATTERY_C1+package->distance)*(WEIGHT_D_B+0)/BATTERY_C2;
+
+    return battery;
+
+}
+double flight_out(Package_t* package){
+
+    double flight=FLIGHT_C1*(WEIGHT_D_B+package->W)+package->distance/(V_HORIZONTAL)+FLIGHT_C2;
 
     return flight;
 }
+
+double flight_in(Package_t* package){
+
+    double flight=FLIGHT_C1*(WEIGHT_D_B+0)+package->distance/(V_HORIZONTAL)+FLIGHT_C2;
+
+    return flight;
+}
+
+double battery_cost(Package_t* package){
+
+    double sum=package->battery_in+package->battery_out;
+
+    return sum;
+
+}
+
+int pick_max (Package_t package[], int n, double battery_remain){
+    int max=-1;  // -1 means no appropriate package found 
+
+    for (int i=0; i<n; i++){
+        if (package[i].delivered==0){
+            if (battery_cost(&package[i])<=battery_remain){ 
+                if (max==-1){
+                    max=i;
+                }else if (battery_cost(&package[i])>=battery_cost(&package[max])) {
+                    max=i;
+                }
+            }
+        }
+    }
+
+    return max;
+}
+
 void stage_1(Package_t package[], int n){
 
     print_stage(1);
@@ -162,58 +226,58 @@ void stage_1(Package_t package[], int n){
     printf ("total weight :" FMT_DB "kg", t_weight);
 }
 
+
+//int num_delivered(Package_t package[], int n){
+   // int sum=0;
+
+   // for (int i=0; i<n; i++){
+   //     sum= sum+ package[i].delivered;
+   // }
+   // return sum;
+//}
+
 void stage_2(Package_t package[], int n){
 
+    int num_delivered=0, battery_change, p_num;
+    double battery_remain=MAX_BATTERY, total_time=0;
+
+    while (num_delivered<n){
+        battery_change=0;
+
+        p_num= pick_max(package,n, battery_remain);
+        
+        if (p_num==-1){
+            battery_remain=MAX_BATTERY;
+            p_num= pick_max(package,n, battery_remain);
+            battery_change=1;
+        }
+        
+
+        printf("package " FMT_INT "", p_num);
+        if (battery_change==1){
+
+            total_time =total_time+SWITCH_T;
+
+            printf("change battery :" FMT_DB " sec, total " FMT_DB " sec, battery is " FMT_DB "%", SWITCH_T, total_time, battery_remain);
+        }
+
+        total_time= total_time+OTHER_T;
+        printf("load drone : " FMT_DB "sec, total " FMT_DB " sec, battery is " FMT_DB " ", OTHER_T, total_time,battery_remain );
+        total_time= total_time+package[p_num].flight_out;
+        battery_remain=battery_remain-package[p_num].battery_out;
+        printf("drone out  : " FMT_DB "sec, total " FMT_DB " sec, battery is " FMT_DB " ", package[p_num].flight_out, total_time, battery_remain );
+        total_time= total_time+package[p_num].flight_in;
+        battery_remain=battery_remain-package[p_num].battery_in;
+        printf("drone return : " FMT_DB "sec, total " FMT_DB " sec, battery is " FMT_DB " ", package[p_num].flight_in, total_time, battery_remain );
+
+        package[p_num].delivered=1;
+
+        num_delivered++;
+
+    }
 
 }   
 
-void stage_3(double X[], double Y[], int n){
+void stage_3(Package_t package[], int n){
 
-    int num_comp[MAXCOMPONENT];
-    double new_Y[MAXCOMPONENT];
-    double total_wastage=0;
-    
-
-    for (int i=1; i<n;i++){
-        num_comp[i]=i;
-    }
-    
-    sort_array(X,num_comp,n);
-        
-    optimize_array(X,num_comp,n);
-
-    for (int i=1; i<n;i++){
-        new_Y[i]= Y[num_comp[i]];
-    }
-    
-   
-    for (int i=1; i<n; i++){  //handle "stage 1" like structure 
-
-        if (numcoil(X, i)>numcoil(X, i-1)){
-        printf ("\n");
-        }
-        printf ("component " INT_FMT ", " DIMEN_FMT " starting ", num_comp[i],X[i], new_Y[i]);
-        printf ("" DIMEN_FMT " on coil " INT_FMT "\n", start_x(X,i), START_Y, numcoil(X,i));
-    }
-
-    printf("\n");
-
-
-    for (int j=1; j<=numcoil(X,n-1); j++){ //handle "stage 2" like structure 
-        printf("coil " INT_FMT ", internal wastage  %4.1f m^2", j, internal_waste(X,new_Y,j,n));
-        total_wastage += internal_waste(X,new_Y,j,n);
-        if (j != numcoil(X,n-1)){
-            printf(", end wastage  %4.1f m^2\n", end_wastage(X,j,n));
-            total_wastage += end_wastage(X,j,n);
-        } else {
-            break;
-        }
-    }      
-    
-    printf ("\noverall,     total wastage  %4.1f m^2\n", total_wastage);
-
-    printf("\n");
-
-    printf("tadaa!");
-    
 }
