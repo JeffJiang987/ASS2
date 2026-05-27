@@ -56,9 +56,9 @@
 #define WEIGHT_D_B 3.8
 #define V_HORIZONTAL 4.2
 #define MAX_BATTERY 100
-#define FMT_DB "%4.1lf"
+#define FMT_DB "%6.1lf"
 #define MAXPACKAGE 999
-#define FMT_INT "%2d"
+#define FMT_INT "%3d"
 #define SWITCH_T 120
 #define OTHER_T 90
 #define BATTERY_C1 57.0
@@ -106,8 +106,15 @@ void make_temp(Package_t package[],Package_t temp[], int n);
 int pick_max (Package_t package[], int n, double battery_remain);
 int num_throwout(Package_t temp[], int n);
 void throwout(Package_t temp[], int n);
+void update(double* total_time, double delta_time,double* battery_remain, double delta_battery);
+void print_line(char* operation, double delta_time,double total_time, double battery_remain);
+void determine_package(Package_t package[], int n, int* p_num,double* battery_remain, int* battery_changed);
+void stage2_heuristic_print(Package_t package[], int n,double* battery_remain, double* total_time,int p_num, int battery_changed, int num_delivered);
+void mark_throwout(Package_t temp[], int n);
+void populate_throwout(Package_t temp[], int n);
+void check_exit(Package_t package[],int n);
 
-
+//programming is fun
 int
 main(int argc, char *argv[]) {
 
@@ -131,7 +138,7 @@ main(int argc, char *argv[]) {
 }
 
 void print_stage(int x){ 
-    printf("-------\n");
+    printf("\n-------\n");
     printf("Stage %d\n", x);
     printf("-------\n");
 }
@@ -224,7 +231,7 @@ void stage_1(Package_t package[], int n){
 
     print_stage(1);
 
-    printf ("num packages :" FMT_INT "\n", n);
+    printf ("num packages :%2d\n", n);
 
     double t_weight=0;
 
@@ -233,23 +240,26 @@ void stage_1(Package_t package[], int n){
         t_weight=t_weight+package[i].W;
     }
         
-    printf ("package " FMT_INT ": x=" FMT_DB ", y=" FMT_DB ", kg=" FMT_DB " \n", 1, package[0].X, package[0].Y, package[0].W);
+    printf ("package  " FMT_INT " : x=  " FMT_DB ", y=  " FMT_DB ", kg= %3.1lf\n", 1, package[0].X, package[0].Y, package[0].W);
 
-    printf ("package " FMT_INT ": x=" FMT_DB ", y=" FMT_DB ", kg=" FMT_DB " \n", n, package[n-1].X, package[n-1].Y, package[n-1].W);
+    printf ("package  " FMT_INT " : x=  " FMT_DB ", y=  " FMT_DB ", kg= %3.1lf\n", n, package[n-1].X, package[n-1].Y, package[n-1].W);
 
-    printf ("total weight :" FMT_DB "kg \n", t_weight);
+    printf ("total weight : " FMT_DB " kg\n", t_weight);
 }
 
+//do the computation to update total_time and battery_remain
 void update(double* total_time, double delta_time, double* battery_remain, double delta_battery ){
     
     *total_time+= delta_time;
     *battery_remain-= delta_battery;
 }
 
+
 void print_line(char* operation, double delta_time, double total_time, double battery_remain){
-    printf("%s : " FMT_DB "sec, total " FMT_DB " sec, battery is " FMT_DB " \n", operation, delta_time, total_time,battery_remain);
+    printf("    %-17s: " FMT_DB " sec, total  " FMT_DB " sec, battery is" FMT_DB "%%\n",operation, delta_time, total_time, battery_remain);
 }
 
+//to determine the p_num for the iteration, 
 void determine_package(Package_t package[], int n, int* p_num, double* battery_remain, int* battery_changed){
 
     *p_num= pick_max(package,n, *battery_remain); // pick the package number to be delivered in this iteration
@@ -261,44 +271,66 @@ void determine_package(Package_t package[], int n, int* p_num, double* battery_r
         }
 }
 
+//check for program failtures in the array
+void check_exit(Package_t package[],int n){
+    for (int i=0; i<n;i++){
+        if (battery_cost(&package[i])>MAX_BATTERY||package[i].W>MAX_CARRY){
+            printf("HAHA BAD LUCK TRY NEXT TIME");
+            exit(EXIT_FAILURE);
+        }
+    }
+}   
 
-//carryout the printing and heuristic in stage 2
-void stage_2(Package_t package[], int n, double* stage2_time){
+//prints the output, while loop that picks the best package to be delivered each iteration, reused in stage 3 
+void stage2_heuristic_print(Package_t package[], int n, double* battery_remain, double* total_time, int p_num, int battery_changed, int num_delivered){
 
-    print_stage(2);
-
-    int num_delivered=0, battery_changed, p_num;
-    double battery_remain=MAX_BATTERY, total_time=0;
-
-    while (num_delivered<n){
+        while (num_delivered<n){
 
         battery_changed=NONE_FOUND;
 
-        determine_package(package, n, &p_num, &battery_remain, &battery_changed); //p_num sets to the best choice in this iteration
+        determine_package(package, n, &p_num, battery_remain, &battery_changed);//p_num sets to the best choice in this iteration
 
         printf("package " FMT_INT "\n", p_num+1);
 
-        if (battery_changed==FOUND){
-
-            update(&total_time, SWITCH_T, &battery_remain, 0);
-            print_line("change battery", SWITCH_T, total_time, battery_remain);
-
+        if (package[p_num].distance<THROW_DIS){ //double check that this iteration allows to be thrown, prepare for stage 3
+            print_line("throw package", THROW_TIME, *total_time, *battery_remain);
+            package[p_num].delivered=1;
+            num_delivered++;
+            continue;
         }
 
-        update(&total_time, OTHER_T, &battery_remain, 0);
-        print_line("load drone", OTHER_T, total_time, battery_remain);
+        if (battery_changed==FOUND){
+            update(total_time, SWITCH_T, battery_remain, 0);
+            print_line("change battery", SWITCH_T, *total_time, *battery_remain);
+        }
 
-        update(&total_time,package[p_num].flight_out, &battery_remain, package[p_num].battery_out);
-        print_line("drone out", package[p_num].flight_out, total_time, battery_remain);
+        update(total_time, OTHER_T, battery_remain, 0);
+        print_line("load drone", OTHER_T, *total_time, *battery_remain);
 
-        update(&total_time,package[p_num].flight_in, &battery_remain, package[p_num].battery_in);
-        print_line("drone return", package[p_num].flight_in, total_time, battery_remain);
+        update(total_time,package[p_num].flight_out, battery_remain, package[p_num].battery_out);
+        print_line("drone out", package[p_num].flight_out, *total_time, *battery_remain);
 
-        package[p_num].delivered=FOUND;
+        update(total_time,package[p_num].flight_in, battery_remain, package[p_num].battery_in);
+        print_line("drone return", package[p_num].flight_in, *total_time, *battery_remain);
+
+        package[p_num].delivered=1;
 
         num_delivered++;
 
     }
+}
+
+//calls the functions to print, and to record down the stage2 total time
+void stage_2(Package_t package[], int n, double* stage2_time){
+
+    print_stage(2);
+
+    int num_delivered=0, battery_changed=NONE_FOUND, p_num=NONE_FOUND;
+    double battery_remain=MAX_BATTERY, total_time=0;
+
+    check_exit(package,n);
+
+    stage2_heuristic_print(package, n, &battery_remain, &total_time, p_num, battery_changed, num_delivered);
 
     *stage2_time= total_time; 
 
@@ -359,7 +391,7 @@ void mark_throwout(Package_t temp[], int n){
     }
 }
 
-//
+//when a package is thrown out, it should have 0 cost for battery & time 
 void populate_throwout(Package_t temp[], int n){
     for (int i=0; i<n;i++){
         if (temp[i].distance<THROW_DIS){
@@ -371,7 +403,7 @@ void populate_throwout(Package_t temp[], int n){
     }
 }
 
-//track how many packages are delivered by being thrown out 
+//track how many packages are delivered by being thrown out for pick_start heurisitc 
 int num_throwout(Package_t temp[], int n){
 
     int num=0;
@@ -392,11 +424,11 @@ int pick_start(Package_t temp[], int n, double stage2_time){
 
     for (int i=0; i<n; i++){
         compute_struct(temp,temp[i].X,temp[i].Y,n); //repopulating the struct temp with the ith starting point
+        check_exit(temp,n);//check for if the new temp will have any package exceed max battery 
         mark_throwout(temp,n); //mark the throwouts as delivered
         throwout_num= num_throwout(temp,n); //track the number thrown out to set as the initial delivered 
         simulated_time = simulate_time (temp, n, throwout_num)+van_time(&temp[i])*2;
     
-        printf("haha:%lf\n", simulated_time);
         if (simulated_time<best_time) {
             start=i;
             best_time=simulated_time;
@@ -405,49 +437,11 @@ int pick_start(Package_t temp[], int n, double stage2_time){
     return start;
 }
 
-void stage2_heuristic (Package_t package, int n, double battery_remain, int p_num, int battery_changed){
-
-        while (num_delivered<n){
-
-        battery_changed=NONE_FOUND;
-
-        determine_package(temp, n, &p_num, &battery_remain, &battery_changed);
-
-        printf("package " FMT_INT "\n", p_num+1);
-
-        if (temp[p_num].distance<THROW_DIS){ //double check that this iteration allows to be thrown. 
-            print_line("throw package", THROW_TIME, total_time, battery_remain);
-            temp[p_num].delivered=1;
-            num_delivered++;
-            continue;
-        }
-
-        if (battery_changed==FOUND){
-            update(&total_time, SWITCH_T, &battery_remain, 0);
-            print_line("change battery", SWITCH_T, total_time, battery_remain);
-        }
-
-        update(&total_time, OTHER_T, &battery_remain, 0);
-        print_line("load drone", OTHER_T, total_time, battery_remain);
-
-        update(&total_time,temp[p_num].flight_out, &battery_remain, temp[p_num].battery_out);
-        print_line("drone out", temp[p_num].flight_out, total_time, battery_remain);
-
-        update(&total_time,temp[p_num].flight_in, &battery_remain, temp[p_num].battery_in);
-        print_line("drone return", temp[p_num].flight_in, total_time, battery_remain);
-
-        temp[p_num].delivered=1;
-
-        num_delivered++;
-
-    }
-    
-}
-
+//repopulate the struct temp with the best starting point, handles printing 
 void stage_3(Package_t package[], int n, double stage2_time){
 
     print_stage(3); 
-    int num_delivered=0, battery_changed, p_num;
+    int num_delivered=0, battery_changed=NONE_FOUND, p_num=NONE_FOUND;
     double battery_remain=MAX_BATTERY, time_van, total_time;
     
     Package_t temp [MAXPACKAGE];
@@ -458,6 +452,7 @@ void stage_3(Package_t package[], int n, double stage2_time){
 
     if (start==NONE_FOUND){
         printf("deliver the packages from the warehouse\n");
+        printf("\ntadaa!\n");
         return;
     } else {
         compute_struct(temp,temp[start].X,temp[start].Y,n); // if a starting point is found, then repopulate the struct temp
@@ -466,48 +461,14 @@ void stage_3(Package_t package[], int n, double stage2_time){
     time_van=van_time(&temp[start]);
 
     total_time=time_van;
-
-    printf("deliver the packages from ( " FMT_DB ",  " FMT_DB ")\n", temp[start].X, temp[start].Y);
+    printf("deliver the packages from (" FMT_DB "," FMT_DB ")\n", temp[start].X, temp[start].Y);
     print_line ("van to location", time_van, total_time, battery_remain);
 
     populate_throwout(temp, n);
 
-    while (num_delivered<n){
+    stage2_heuristic_print(temp, n, &battery_remain, &total_time, p_num, battery_changed, num_delivered);
 
-        battery_changed=NONE_FOUND;
-
-        determine_package(temp, n, &p_num, &battery_remain, &battery_changed);
-
-        printf("package " FMT_INT "\n", p_num+1);
-
-        if (temp[p_num].distance<THROW_DIS){ //double check that this iteration allows to be thrown. 
-            print_line("throw package", THROW_TIME, total_time, battery_remain);
-            temp[p_num].delivered=1;
-            num_delivered++;
-            continue;
-        }
-
-        if (battery_changed==FOUND){
-            update(&total_time, SWITCH_T, &battery_remain, 0);
-            print_line("change battery", SWITCH_T, total_time, battery_remain);
-        }
-
-        update(&total_time, OTHER_T, &battery_remain, 0);
-        print_line("load drone", OTHER_T, total_time, battery_remain);
-
-        update(&total_time,temp[p_num].flight_out, &battery_remain, temp[p_num].battery_out);
-        print_line("drone out", temp[p_num].flight_out, total_time, battery_remain);
-
-        update(&total_time,temp[p_num].flight_in, &battery_remain, temp[p_num].battery_in);
-        print_line("drone return", temp[p_num].flight_in, total_time, battery_remain);
-
-        temp[p_num].delivered=1;
-
-        num_delivered++;
-
-    }
-
-    total_time= total_time+time_van;
-    printf("van to warehouse :  " FMT_DB " sec, total  " FMT_DB " sec, battery is  " FMT_DB "%\n", time_van, total_time, battery_remain);
-
+    total_time+= time_van;
+    print_line ("van to warehouse", time_van, total_time, battery_remain);
+    printf("\ntadaa!\n");
 }
